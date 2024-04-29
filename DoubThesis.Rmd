@@ -1,0 +1,1121 @@
+---
+title: "Exploring the Impact of Mental Well-Being on Turnover Intentions in the Early Childcare Workforce: A Structural Equation Modeling Approach with Emphasis on Disability Classroom Demographics"
+author: "Astri Doub"
+date: "2024-04-29"
+output: html_document
+---
+
+# Data Cleaning
+
+``` {r loading data and libraries, include=FALSE, cache = FALSE}
+
+library(tidyverse)
+library(data.table, include.only = c("rbindlist"))
+library(kableExtra)
+library(magick)
+library(scales)
+library(stringr)
+library(readxl, include.only = c("read_excel"))
+library(effectsize)
+library(gtsummary)
+library(psych) #for latent variables
+library(lavaan) #for CFA and SEM modeling
+library(semPlot) #for plotting SEM models
+
+options(scipen = 999)
+#setwd("/Users/Astri/Desktop")
+knitr::opts_chunk$set(message = FALSE)
+data <- read_csv("National Childcare Survey_June - August 2023_ Identified Choice Text Data COPY.csv")
+weights <- read_csv("childcare_wave4_crosssection_survey_weights.csv")
+data1 = data[-1,]
+data2 = data1[-1,]
+
+```
+
+```{r prepare data, include = FALSE, cache = FALSE}
+
+data_clean <- data2 %>%
+  # filtering for the subset needed for analysis
+  filter(CF1!="No, I do not consent to participate in this survey." ) %>%
+  select(GA1_1, GPG5A1_1, IN20_1, IN20_2, INE5_1, #these are the questions concerning child disability
+         #director administrator answered GPG5A1_1
+         #teachers/assistant teachers answered GA1_1
+         A1, A4, AN6,
+         TI_1, TI_2...163, TI_2...164, TI_3, TI_4, TI_5, WS4, WS6, #Worker satisfaction for now
+         K1_1, K1_2, K1_3, K1_4, K1_5, K1_6, K1_7, K1_8, K1_9, K1_10, #percieved stress scale
+    P1,P2_1, P2_2,P2_3, P2_4, P2_5, P2_6, P2_7,P4_1, P4_2, P4_3,P4_4, P4_5, P4_6, P4_7,
+         P5_1 ,P5_2,P5_3, P5_4, P5_5, P5_6, P5_7,P11_1,P11_2, P11_3,C2, C2.1,
+         A0,CP1a_1, G5_1, G5_2,G5_3, G5_4,G5_5, G5_6,G5_7,
+         G51_1, G51_2,G51_3, G51_4,G51_5, G51_6,G51_7,ResponseId, FS6_1, FS6_2, FS6_3, FS6_4, FS6_5, FS6_6, FS6_7, FS6_8, FS6_9, FS6_10, FS6_11, DF1, DF1a, DF2, DF2a, DF3, DF3a, FS1, FS1E, ES7, WS7, ES7a.1, WS8.1, ES7a.2, WS8.2, ES7a.3, WS8.3, ES7a.4, WS8.4, ES7a.5, WS8.5, AN6, AN1, AN3, CP1_1, CP1a_1, CP1b_1, CP1c_1, CP1d_1, CP1e_1, CP1f_1, CP1g_1, CP2_1, CP2a_1, CP2a_2, CP2a_3, CP3_1, CP3a_1, CP3b_1, CP3c_1, CP4_1, CP4a_1, CP4a_2, CP4a_3, CP6_1, CP7_1, CP8,CP9_1, CP10, CP11, CP12, CP13, CP14, ZP2e_1, ZP3e_1, ZP3e_2, `ZP2 _1`, ZP3_1, ZP3_2, A3,
+    WS6,
+    IN5_8, J1_8, #Mental Health Datapoints
+    IN13, IN14 #Behavior Datapoints
+         ) %>%
+  mutate(
+    ####HEAD START
+         C2.1_Head = case_when(C2.1=="Not-for-profit agency center" |
+                                 C2.1=="Faith-based child care program" |
+                                 C2.1=="For-profit center" |
+                                 C2.1=="Other center-based" |
+                                 C2.1== "School-based" ~ "Other",
+                               C2.1=="Head Start or Early Head Start" ~ "HS/EHS",
+                               C2.1=="N/A: Home-based"~NA,
+                               .default = C2.1),
+
+    ChildNum_Disability = case_when(!is.na(GA1_1) ~ GA1_1,
+                                         !is.na(GPG5A1_1) ~ GPG5A1_1,
+                                         .default = NA),
+         ChildNum_Disability = as.numeric(ChildNum_Disability),
+         TerminateNum_ChallengingBehavior = IN20_1,
+         LeaveEarlyNum_ChallengingBehavior = IN20_2,
+         
+         
+          Disability_EqualOver20Pct = case_when(
+            ChildNum_Disability >= 0.20 ~ "Yes",
+            ChildNum_Disability >= 0.20 ~ "No",
+            .default = NA),
+          
+          Disability_Under20Pct = case_when(
+            ChildNum_Disability < .20 ~ "Yes",
+            ChildNum_Disability >= 0.20 ~ "No",
+            .default = NA),
+         
+          Disability_Pct = case_when(
+            ChildNum_Disability > 10 ~ "Over 10%",
+            ChildNum_Disability <= 10 ~ "Equal to or Under 10%",
+            .default = NA),
+
+          Disability_Pct_Q4 = case_when(
+            ChildNum_Disability > 20 ~ "Over 20%",
+            ChildNum_Disability <= 4 ~ "Equal to or Under 4%",
+            .default = NA),
+         
+  #Gender
+          Staff_Gender = case_when(
+            A1=="Female" ~ "Female",
+            A1=="Male" ~ "Male",
+            !is.na(A1) ~ "Other",
+            .default = NA),
+                            
+    
+### Provider Race
+        StaffRace_All = case_when(
+    A3 == "I prefer not to answer" ~ "I prefer not to answer",  # Keep 'I prefer not to answer' as is
+    grepl(",", A3) ~ "Multiple Races",  # If the string contains a comma, mark as 'Multiple Races'
+    TRUE ~ A3  # For all other cases, keep the response as is
+  ),
+        StaffRace_BWH = case_when(StaffRace_All == "White" ~ "White",
+                                    StaffRace_All == "I prefer not to answer" ~ NA,
+                                  StaffRace_All == "Black or African American" ~ "Black", #there were no hispanic respondents
+                                    .default = "Other"),
+
+        HigherEducation = case_when(AN6 == "Some college credit but no degree" |
+                                    AN6 == "High school graduate or GED completed" |
+                                    AN6 == "Less than high school" ~ "No Advanced Degree",
+                                    AN6 == "Graduate/Professional/Doctorate degree" |
+                                    AN6 == "Bachelor's degree" |                       
+                                    AN6 == "Associate’s degree" ~ "Completed Advanced Degree" ),
+
+#### Mental Health Programs/Services (FS6_10)
+      MentalHealthServices_use = case_when(FS6_10 == "Benefit is offered and I HAVE enrolled or used it" ~ "Yes",
+                                    is.na(FS6_10)~NA,
+                                    .default = "No"),
+      MentalHealthServices_know = case_when(FS6_10 == "Benefit is offered and I HAVE enrolled or used it"|
+                                   FS6_10=="Benefit is offered but I have NOT enrolled or used it" ~ "Yes",
+                                  is.na(FS6_10)~NA,
+                                  .default = "No")
+)%>%
+    mutate( #PSS
+    PSS_1 = case_when(K1_1=="Never\n" ~ 0,
+                     K1_1=="Almost Never\n" ~ 1,
+                     K1_1=="Sometimes\n" ~ 2,
+                     K1_1=="Fairly Often\n" ~ 3,
+                     K1_1=="Very Often\n" ~ 4,
+                     .default = NA),
+        PSS_2 = case_when(K1_2=="Never\n" ~ 0,
+                     K1_2=="Almost Never\n" ~ 1,
+                     K1_2=="Sometimes\n" ~ 2,
+                     K1_2=="Fairly Often\n" ~ 3,
+                     K1_2=="Very Often\n" ~ 4,
+                     .default = NA),
+        PSS_3 = case_when(K1_3=="Never\n" ~ 0,
+                     K1_3=="Almost Never\n" ~ 1,
+                     K1_3=="Sometimes\n" ~ 2,
+                     K1_3=="Fairly Often\n" ~ 3,
+                     K1_3=="Very Often\n" ~ 4,
+                     .default = NA),
+        PSS_6 = case_when(K1_6=="Never\n" ~ 0,
+                     K1_6=="Almost Never\n" ~ 1,
+                     K1_6=="Sometimes\n" ~ 2,
+                     K1_6=="Fairly Often\n" ~ 3,
+                     K1_6=="Very Often\n" ~ 4,
+                     .default = NA),
+        PSS_9 = case_when(K1_9=="Never\n" ~ 0,
+                     K1_9=="Almost Never\n" ~ 1,
+                     K1_9=="Sometimes\n" ~ 2,
+                     K1_9=="Fairly Often\n" ~ 3,
+                     K1_9=="Very Often\n" ~ 4,
+                     .default = NA),
+        PSS_10 = case_when(K1_10=="Never\n" ~ 0,
+                     K1_10=="Almost Never\n" ~ 1,
+                     K1_10=="Sometimes\n" ~ 2,
+                     K1_10=="Fairly Often\n" ~ 3,
+                     K1_10=="Very Often\n" ~ 4,
+                     .default = NA),
+       PSS_4 = case_when(K1_4=="Never\n" ~ 4,
+                     K1_4=="Almost Never\n" ~ 3,
+                     K1_4=="Sometimes\n" ~ 2,
+                     K1_4=="Fairly Often\n" ~ 1,
+                     K1_4=="Very Often\n" ~ 0,
+                     .default = NA),
+        PSS_5 = case_when(K1_5=="Never\n" ~ 4,
+                     K1_5=="Almost Never\n" ~ 3,
+                     K1_5=="Sometimes\n" ~ 2,
+                     K1_5=="Fairly Often\n" ~ 1,
+                     K1_5=="Very Often\n" ~ 0,
+                     .default = NA),
+                PSS_7 = case_when(K1_7=="Never\n" ~ 4,
+                     K1_7=="Almost Never\n" ~ 3,
+                     K1_7=="Sometimes\n" ~ 2,
+                     K1_7=="Fairly Often\n" ~ 1,
+                     K1_7=="Very Often\n" ~ 0,
+                     .default = NA),
+        PSS_8 = case_when(K1_8=="Never\n" ~ 4,
+                     K1_8=="Almost Never\n" ~ 3,
+                     K1_8=="Sometimes\n" ~ 2,
+                     K1_8=="Fairly Often\n" ~ 1,
+                     K1_8=="Very Often\n" ~ 0,
+                    .default = NA),
+    PSS_total = PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10,
+    PSS_binned = cut(PSS_total,
+                          breaks = c(-Inf, 13, 26, 40),
+                          labels = c("0-13", "14-26", "27-40"),
+                          right = TRUE),
+    #TI
+    JS_1 = case_when(TI_1=="Never" ~ 1,
+                     TI_1=="Rarely" ~ 2,
+                     TI_1=="Sometimes" ~ 3,
+                     TI_1=="Very Often" ~ 4,
+                     TI_1=="Always" ~ 5,
+                     .default = NA),
+    JS_3 = case_when(TI_3=="Never" ~ 1,
+                     TI_3=="Rarely" ~ 2,
+                     TI_3=="Sometimes" ~ 3,
+                     TI_3=="Very Often" ~ 4,
+                     TI_3=="Always" ~ 5,
+                     .default = NA),
+    JS_4 = case_when(TI_4=="Never" ~ 1,
+                     TI_4=="Rarely" ~ 2,
+                     TI_4=="Sometimes" ~ 3,
+                     TI_4=="Very Often" ~ 4,
+                     TI_4=="Always" ~ 5,
+                     .default = NA),
+    JS_2a = case_when(TI_2...163=="Always" ~ 1,
+                     TI_2...163=="Ususally" ~ 2,
+                     TI_2...163=="About half the time" ~ 3,
+                     TI_2...163 =="Seldom" ~ 4,
+                     TI_2...163 =="Never" ~ 5,
+                     .default = NA),
+    JS_2b = case_when(TI_2...164=="Very satisfying" ~ 1,
+                     TI_2...164=="Satisfying" ~ 2,
+                     TI_2...164=="Neither" ~ 3,
+                     TI_2...164 =="Dissatisfying" ~ 4,
+                     TI_2...164 =="Totally dissatisfying" ~ 5,
+                     .default = NA),
+    JS_5 = case_when(TI_5=="Highly unlikely" ~ 1,
+                     TI_5=="Unlikely" ~ 2,
+                     TI_5=="Somewhat likely" ~ 3,
+                     TI_5=="Likely" ~ 4,
+                     TI_5=="Highly likely" ~ 5,
+                     .default = NA),
+  JS_Total = rowSums(cbind(JS_1, JS_3, JS_4, JS_5, JS_2a, JS_2b), na.rm = TRUE),
+  JS_binned = cut(JS_Total,
+                  breaks = c(6, 14, 22, 30),
+                  labels = c("6-14", "15-22", "23-30"),
+                  right = TRUE)
+        ) %>%
+  # Create scores for Health Benefits
+  mutate(HealthBenefit_Score = case_when(
+    HealthBenefit_use == "Yes" ~ 2,
+    HealthBenefit_use == "No" & HealthBenefit_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  # Create scores for Pension Benefits
+  PensionBenefit_Score = case_when(
+    PensionBenefit_use == "Yes" ~ 2,
+    PensionBenefit_use == "No" & PensionBenefit_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  # Create scores for Medical Leave
+    MedicalLeave_Score = case_when(
+    MedicalLeave_use == "Yes" ~ 2,
+    MedicalLeave_use == "No" & MedicalLeave_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  # Create scores for Sick Days
+  SickDays_Score = case_when(
+    SickDays_use == "Yes" ~ 2,
+    SickDays_use == "No" & SickDays_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  # Create scores for Education Loan Forgiveness
+  EdLoanForgiveness_Score = case_when(
+    EdLoanForgiveness_use == "Yes" ~ 2,
+    EdLoanForgiveness_use == "No" & EdLoanForgiveness_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  # Create scores for Mental Health Services
+  MentalHealthServices_Score = case_when(
+    MentalHealthServices_use == "Yes" ~ 2,
+    MentalHealthServices_use == "No" & MentalHealthServices_know == "Yes" ~ 1,
+    TRUE ~ 0
+  ),
+  Benefits_Total = rowSums(cbind(HealthBenefit_Score, PensionBenefit_Score, MedicalLeave_Score, SickDays_Score, EdLoanForgiveness_Score, MentalHealthServices_Score), na.rm = TRUE),
+  HealthBenefits_Total = rowSums(cbind(MedicalLeave_Score, SickDays_Score, MentalHealthServices_Score), na.rm = TRUE),
+  FinBenefits_Total = rowSums(cbind(HealthBenefit_Score, PensionBenefit_Score,EdLoanForgiveness_Score), na.rm = TRUE),
+  Benefits_Binned = cut(Benefits_Total,
+                  breaks = c(0, 4, 8, 12),
+                  labels = c("0-4", "5-8", "9-12"),
+                  right = TRUE),
+  HealthBenefits_Binned = cut(HealthBenefits_Total,
+                  breaks = c(0, 4, 8, 12),
+                  labels = c("0-4", "5-8", "9-12"),
+                  right = TRUE),
+  FinBenefits_Binned = cut(FinBenefits_Total,
+                  breaks = c(0, 4, 8, 12),
+                  labels = c("0-4", "5-8", "9-12"),
+                  right = TRUE)
+  ) %>%
+  mutate(Gender = case_when(
+    A1 == "Male" ~ "Male",
+    A1 == "Female" ~ "Female",
+    A1 == NA ~ NA,
+    TRUE ~ "Other"))
+
+df <- merge(data_clean,weights,by="ResponseId")
+
+# 990 observations didn't have states reported and were dropped in weights, so about 300 aren't matched here in this subset
+
+```
+
+```{r only complete cases}
+df_select_1 <- df %>%
+    select(A0_FWD, AN6, AN1, A0, Disability_Pct, ChildNum_Disability, C2.1, C2.1_Head, C2.1_Fp, HigherEducation, Gender, A4, FS1, MentalHealthServices_use, MentalHealthServices_know, JS_1, JS_2a, JS_2b, JS_3, JS_4, JS_5, PSS_1, PSS_2, PSS_3, PSS_4, PSS_5, PSS_6, PSS_7, PSS_8, PSS_9, PSS_10, PSS_binned, PSS_total, IN5_8, J1_8, IN13) %>%
+   na.omit()
+
+df_select_1 <- df_select_1 %>%
+  mutate(Income = case_when(
+    AN1 == "$25,000-34,999" ~ 1,
+    AN1 == "$35,000-49,999" ~ 2,
+    AN1 == "$50,000-74,999" ~ 3,
+    AN1 == "≥$75,000" ~ 4,
+    AN1 == "I prefer not to answer" ~ NA)) %>%
+  mutate(
+    MH_1 = case_when(IN5_8=="Yes" ~ 1,
+                     IN5_8=="No" ~ 0),
+    MH_2 = case_when(J1_8=="Definitely WILL have\n" ~ 1,
+                     J1_8=="Unsure\n" ~ 0.5,
+                     J1_8=="Definitely WILL NOT have\n" ~ 0),
+    MH_3 = case_when(
+    MentalHealthServices_use == "Yes" ~ 2,
+    MentalHealthServices_use == "No" & MentalHealthServices_know == "Yes" ~ 1,
+    TRUE ~ 0
+  )) %>%
+  mutate(CovidBehavior = case_when(
+    IN13 == "None" ~ 0,
+    IN13 == "A few" ~ 1,
+    IN13 == "About half" ~ 2,
+    IN13 == "Most" ~ 3,
+    IN13 == "All or nearly all" ~ 4,
+    IN13 == "I don't know" ~ NA
+  ))
+
+df_select_2 <- df_select_1 %>%
+  na.omit()
+
+
+
+```
+
+# Descriptive Statistics
+
+## Subgroup Creation
+
+```{r Subgroups}
+df_select_2$Disability_Category <- cut(df_select_2$ChildNum_Disability,
+                              breaks = c(-Inf, 10.01, Inf),
+                              labels = c("Equal to or Under 10%", "Over 10%"),
+                              right = FALSE) # This ensures that 10% is included in "10% and under"
+
+# Enhanced histogram plot with ggplot2
+ggplot(df_select_2, aes(x = ChildNum_Disability, fill = Disability_Category)) +
+  geom_histogram(color = "white", binwidth = 1) + # Use a white borders
+  scale_fill_manual(values = c("Equal to or Under 10%" = "salmon", "Over 10%" = "skyblue")) + # Custom colors
+  theme_minimal(base_size = 14) + # Use a minimal theme with larger base font size
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),    # Centered and bold title with larger font
+    axis.title = element_text(size = 14, face = "bold"),                 # Bold axis titles with larger font
+    axis.text = element_text(size = 12),                                 # Larger axis text
+    legend.position = "top"                                              # Position legend on top
+  ) +
+  labs(title = "Histogram of Number of Children with Disabilities", 
+       x = "Percent of Children with Disabilities", 
+       y = "Frequency",
+       fill = "Disability\nCategory")
+# Print summary statistics of ChildNum_Disability
+summary_statistics <- summary(df_select_2$ChildNum_Disability)
+print(summary_statistics)
+```
+
+
+## Demographic Variables
+
+### Income Breakdown of the sample
+
+```{r}
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(AN1, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(Income, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+#Sanity Check and Cramer's V
+chisq_test <- chisq.test(table(df_select_2$A0_FWD, df_select_2$Disability_Pct))
+# Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+# Print the Cramer's V result
+print(cramers_v)
+
+
+```
+
+### Higher Education Breakdown of the sample
+
+```{r}
+
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(HigherEducation, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+```
+
+### Gender Breakdown of the Sample
+
+
+```{r}
+# General Breakdown of the Sample
+
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(Gender, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+
+```
+
+### Racial Breakdown of Sample
+
+```{r}
+
+#StaffRace_BWH calculated separately since not included in model and lowers sample size
+# df_select %>% filter(!is.na(Disability_Pct)) %>% select(StaffRace_BWH, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+```
+### Teacher versus Administrator
+```{r teacher/admin profile, echo = FALSE, warning = FALSE}
+#A0_FWD
+
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(A0, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+chisq_test <- chisq.test(table(df_select_2$A0, df_select_2$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+print(cramers_v)
+
+```
+
+### Program Type
+```{r Program Type, echo = FALSE, warning = FALSE}
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(C2.1_Head, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+chisq_test <- chisq.test(table(df_select_2$C2.1_Head, df_select_2$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+print(cramers_v)
+
+
+```
+
+
+### Worker Age
+```{r Age, echo = FALSE, warning = FALSE}
+#A4
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(A4, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+df_select_2 <- df_select_2 %>% mutate(
+  Age_YO = case_when(
+    A4 == "18 - 24" |
+    A4 == "25 - 34" |
+    A4 == "35 - 44" ~ "Under 45",
+    A4 == "45 - 54" |
+    A4 == "55 - 64" |
+    A4 == "75 - 84" |
+    A4 == "85 or older" ~ "45 and Over",
+    .default = NA)
+  )
+
+df_select_2 %>% filter(!is.na(Disability_Pct) & !is.na(Age_YO)) %>% select(Age_YO, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+chisq_test <- chisq.test(table(df_select_2$Age_YO, df_select_2$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+print(cramers_v)
+
+```
+
+
+## Variables of Interest
+
+### PSS
+```{r}
+# Use tbl_summary to create a table
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct)) %>%
+  select(PSS_binned, Disability_Pct) %>%
+  tbl_summary(by = Disability_Pct) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+# Perform chi-squared test
+chisq_test <- chisq.test(table(df_select_2$PSS_binned, df_select_2$Disability_Pct))
+
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+
+# Print the Cramer's V result
+print(cramers_v)
+
+
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct)) %>%
+  select(PSS_total, Disability_Pct) %>%
+  tbl_summary(by = Disability_Pct) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+# Names of the variables to loop over
+pss_vars <- paste0("PSS_", 1:10)  # This creates "PSS_1", "PSS_2", ..., "PSS_10"
+
+# Empty list to store the tbl_summary tables
+list_of_tables <- list()
+
+for (var in pss_vars) {
+  # Binarize the current PSS variable
+  df_select_2 <- df_select_2 %>%
+    mutate(!!sym(paste0(var, "_binarized")) := case_when(
+      !!sym(var) >= 2 ~ "Equal to or Above 2",
+      TRUE ~ "Below 2"
+    ))
+  
+  # Create a table summary for the binarized variable
+  table_summary <- df_select_2 %>%
+    filter(!is.na(Disability_Pct), !is.na(!!sym(var))) %>%
+    select(!!sym(paste0(var, "_binarized")), Disability_Pct) %>%
+    tbl_summary(
+      by = Disability_Pct,
+      statistic = all_categorical() ~ "{n} ({p}%)"
+    ) %>%
+    add_p() %>%
+    add_overall() %>%
+    modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+  # Print the table
+  print(table_summary)
+  
+  # Add the table to the list with a named entry for each PSS variable
+  list_of_tables[[paste0(var, "_binarized")]] <- table_summary
+}
+
+```
+
+### Difficult Behaviors
+
+```{r}
+
+#Stressful class, behaviors
+tbl_summary_result <- df_select_2 %>% 
+  filter(!is.na(Disability_Pct) & !is.na(IN13)) %>% 
+  select(IN13, Disability_Pct) %>% 
+  tbl_summary(by = Disability_Pct) %>% 
+  add_p() %>% 
+  add_overall() %>% 
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table summary
+print(tbl_summary_result)
+
+chisq_test <- chisq.test(table(df_select_2$IN13, df_select_2$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+# Print the Cramer's V result
+print(cramers_v)
+
+# Assuming df_select is your dataset and IN13 is the variable to modify
+df_select_2 <- df_select_2 %>%
+  mutate(
+    IN13_Binary = case_when(
+      IN13 %in% c("A few", "None") ~ "Less than half",
+      IN13 %in% c("Most", "All or nearly all", "About half") ~ "Half or more",
+      IN13 %in% c("I don't know") ~ "I don't know",
+      TRUE ~ NA_character_  # Handle "I don’t know" or any unexpected values as NA
+    )
+  )
+
+# Create a summary table grouped by Disability_Pct
+tbl_summary_result <- df_select_2 %>%
+  filter(!is.na(Disability_Pct) & !is.na(IN13_Binary)) %>%  # Ensure no NA values in key columns
+  select(IN13_Binary, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,  # Group by Disability Percent
+    statistic = all_categorical() ~ "{n} / {N} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table summary
+print(tbl_summary_result)
+
+```
+
+### Mental Health Resources
+
+```{r}
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(IN5_8, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+chisq_test <- chisq.test(table(df$IN5_8, df$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+# Print the Cramer's V result
+print(cramers_v)
+
+```
+
+```{r}
+df_select_2 %>% filter(!is.na(Disability_Pct)) %>% select(J1_8, Disability_Pct) %>% tbl_summary(by = Disability_Pct) %>% add_p() %>% add_overall() %>% modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+chisq_test <- chisq.test(table(df_select$J1_8, df_select$Disability_Pct))
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+
+```
+
+```{r}
+# Use tbl_summary to create a table
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(MH_3)) %>%
+  select(MH_3, Disability_Pct) %>%
+  tbl_summary(by = Disability_Pct) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+```
+
+
+### Turnover Intentions
+
+```{r}
+df_select_2 <- df_select_2 %>% mutate(
+  JS_Total = rowSums(cbind(JS_1, JS_3, JS_4, JS_5, JS_2a, JS_2b), na.rm = TRUE),
+  JS_binned = cut(JS_Total,
+                  breaks = c(6, 14, 22, 30),
+                  labels = c("6-14", "15-22", "23-30"),
+                  right = TRUE)
+        )
+
+# Use tbl_summary to create a table
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_binned)) %>%
+  select(JS_binned, Disability_Pct) %>%
+  tbl_summary(by = Disability_Pct) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+# Perform chi-squared test
+chisq_test <- chisq.test(table(df_select_2$JS_binned, df_select_2$Disability_Pct))
+
+# Calculate Cramer's V for effect size
+cramers_v <- cramers_v(chisq_test)
+
+# Print the Cramer's V result
+print(cramers_v)
+# Binarize the JS_1 variable
+df_select_2 <- df_select_2 %>%
+  mutate(JS_1_binarized = case_when(
+    JS_1 > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_1)) %>%
+  select(JS_1_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+df_select_2 <- df_select_2 %>%
+  mutate(JS_2_binarized = case_when(
+    JS_2a > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_2a)) %>%
+  select(JS_2_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+df_select_2 <- df_select_2 %>%
+  mutate(JS_3_binarized = case_when(
+    JS_2b > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_2b)) %>%
+  select(JS_3_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+df_select_2 <- df_select_2 %>%
+  mutate(JS_4_binarized = case_when(
+    JS_3 > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_3)) %>%
+  select(JS_4_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+df_select_2 <- df_select_2 %>%
+  mutate(JS_5_binarized = case_when(
+    JS_4 > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_4)) %>%
+  select(JS_5_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+
+df_select_2 <- df_select_2 %>%
+  mutate(JS_6_binarized = case_when(
+    JS_5 > 3 ~ "Above 3",
+    TRUE ~ "3 or Below"
+  ))
+
+# Create a table summary for the binarized JS_1 variable
+table_summary <- df_select_2 %>%
+  filter(!is.na(Disability_Pct), !is.na(JS_5)) %>%
+  select(JS_6_binarized, Disability_Pct) %>%
+  tbl_summary(
+    by = Disability_Pct,
+    statistic = all_categorical() ~ "{n} ({p}%)"
+  ) %>%
+  add_p() %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Disability Percent**")
+
+# Print the table
+print(table_summary)
+```
+
+## Chronbach Alpha 
+
+### PSS
+
+```{r}
+# Select only the PSS variables for Cronbach's alpha calculation
+pss_data <- df_select_2 %>% select(PSS_1, PSS_2, PSS_3, PSS_4, PSS_5, PSS_6, PSS_7, PSS_8, PSS_9, PSS_10)
+
+# Calculate Cronbach's alpha
+alpha_result <- alpha(pss_data)
+
+# Print the overall Cronbach's alpha result
+print(alpha_result$total$raw_alpha)
+
+```
+
+### Mental Health Resources
+
+```{r}
+MH_data <- df_select_2 %>% select(MH_1, MH_2, MH_3)
+
+# Calculate Cronbach's alpha
+alpha_result <- alpha(MH_data)
+
+# Print the overall Cronbach's alpha result
+print(alpha_result$total$raw_alpha)
+
+```
+
+### Turnover Intentions
+
+```{r}
+
+TI_data <- df_select_2 %>% select(JS_1, JS_3, JS_4, JS_2a, JS_2b, JS_5)
+
+# Calculate Cronbach's alpha
+alpha_result <- alpha(TI_data)
+
+# Print the overall Cronbach's alpha result
+print(alpha_result$total$raw_alpha)
+
+```
+
+
+## CFA
+
+```{r}
+#CFA
+# Define the CFA model (same as before)
+cfa_model <- '
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+'
+
+# Fit the two-group CFA model
+cfa_fit_two_group <- cfa(model = cfa_model, data = df_select_2, group = "Disability_Pct", estimator = "MLR")
+
+# Summary of the two-group fit
+summary(cfa_fit_two_group, fit.measures = TRUE, standardized = TRUE)
+
+# Check model fit measures
+fitMeasures(cfa_fit_two_group)
+
+# Standardized loadings for both groups
+standardizedSolution(cfa_fit_two_group)
+
+# Unstandardized loadings for both groups
+parameterEstimates(cfa_fit_two_group)
+
+
+# Extract specific fit indices
+fit_indices <- fitMeasures(cfa_fit_two_group, c("rmsea", "srmr", "cfi", "tli"))
+
+# Print the extracted fit indices
+print(fit_indices)
+
+
+```
+
+## SEM
+
+### Basic Model
+```{r}
+model <- '
+  # Latent variables definitions
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+
+  # Regressions
+  TurnoverIntention ~ MHResources + PSS + CovidBehavior + A0 + AN6 + C2.1 + Income
+'
+
+# Fit the multi-group SEM
+fit <- sem(model, data = df_select_2, group = "Disability_Pct")
+summary(fit)
+
+# Optionally, visualize the path diagram for each group
+semPaths(fit, whatLabels="est", layout="tree", rotation=2)
+
+# Extract fit measures for each group
+fitMeasures(fit, c("cfi", "rmsea", "srmr", "tli"))
+
+```
+
+### Mediation Model
+
+```{r}
+model <- '
+  # Latent variables definitions
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+
+  # Direct paths
+  TurnoverIntention ~ MHResources + PSS + CovidBehavior + A0 + AN6 + C2.1 + Income
+  MHResources ~ PSS
+  CovidBehavior ~ PSS
+  
+  # Mediation paths: specifying indirect effects
+  # Note: Indirect effects are implicit in SEM and calculated from the product of direct paths
+  # No need to specify interaction terms unless modeling moderation
+'
+
+fit <- sem(model, data = df_select_2, group = "Disability_Pct")
+summary(fit, standardized = TRUE, rsquare = TRUE)
+
+# Optionally, visualize the path diagram for each group
+semPaths(fit, whatLabels="est", layout="tree", rotation=2)
+
+# Extract fit measures for each group
+fitMeasures(fit, c("cfi", "rmsea", "srmr", "tli"))
+```
+
+
+## Meaasurement Invariance
+
+```{r}
+model <- '
+  # Latent variables definitions
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+
+  # Direct paths
+  TurnoverIntention ~ MHResources + PSS + CovidBehavior + A0 + AN6 + C2.1 + Income
+  MHResources ~ PSS
+  CovidBehavior ~ PSS
+  
+  # Mediation paths: specifying indirect effects
+  # Note: Indirect effects are implicit in SEM and calculated from the product of direct paths
+  # No need to specify interaction terms unless modeling moderation
+'
+
+fit <- sem(model, data = df_select_2, group = "Disability_Pct")
+summary(fit, standardized = TRUE, rsquare = TRUE)
+
+# Optionally, visualize the path diagram for each group
+semPaths(fit, whatLabels="est", layout="tree", rotation=2)
+
+# Extract fit measures for each group
+fitMeasures(fit, c("cfi", "rmsea", "srmr", "tli"))
+
+
+model2 <- '
+  # Latent variables definitions
+  PSS =~ a*PSS_1 + b*PSS_2 + c*PSS_3 + d*PSS_4 + e*PSS_5 + f*PSS_6 + g*PSS_7 + h*PSS_8 + i*PSS_9 + j*PSS_10
+  MHResources =~ k*MH_1 + l*MH_2 + m*MH_3
+  TurnoverIntention =~ n*JS_1 + o*JS_2a + p*JS_2b + q*JS_3 + r*JS_4 + s*JS_5
+
+  # Direct paths
+  TurnoverIntention ~ MHResources + PSS + CovidBehavior + A0 + AN6 + C2.1 + Income
+  MHResources ~ PSS
+  CovidBehavior ~ PSS
+  
+  # Mediation paths: specifying indirect effects
+  # Note: Indirect effects are implicit in SEM and calculated from the product of direct paths
+  # No need to specify interaction terms unless modeling moderation
+'
+
+fit2 <- sem(model2, data = df_select_2, group = "Disability_Pct")
+summary(fit2, standardized = TRUE, rsquare = TRUE)
+
+# Optionally, visualize the path diagram for each group
+semPaths(fit2, whatLabels="est", layout="tree", rotation=2)
+
+# Extract fit measures for each group
+
+fitMeasures(fit, c("cfi", "rmsea", "srmr", "tli"))
+
+# Perform chi-square difference test
+chi_diff_test <- lavTestLRT(fit2, fit)
+
+# Output the results of the chi-square difference test
+print(chi_diff_test)
+
+
+```
+
+## Comparing the Two Groups
+
+```{r}
+
+# Define the SEM model (replace with your actual model specification)
+model_unconstrained <- '
+  # Latent variables definitions
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+  TurnoverIntention ~ MHResources + PSS + CovidBehavior + A0 + AN6 + C2.1 + Income
+    MHResources ~ PSS
+  CovidBehavior ~ PSS
+'
+
+# Fit the unconstrained multi-group SEM
+fit_unconstrained <- sem(model_unconstrained, data = df_select_2, group = "Disability_Pct")
+
+# Define the constrained model (imposing equality constraints on all parameters)
+model_constrained <- '
+  # Applying equality constraints across groups for all parameters
+  PSS =~ PSS_1 + PSS_2 + PSS_3 + PSS_4 + PSS_5 + PSS_6 + PSS_7 + PSS_8 + PSS_9 + PSS_10
+  MHResources =~ MH_1 + MH_2 + MH_3
+  TurnoverIntention =~ JS_1 + JS_2a + JS_2b + JS_3 + JS_4 + JS_5
+  TurnoverIntention ~ a*MHResources + b*PSS + c*CovidBehavior + A0 + AN6 + C2.1 + Income
+  MHResources ~ h*PSS
+  CovidBehavior ~ i*PSS
+'
+
+# Fit the constrained multi-group SEM
+fit_constrained <- sem(model_constrained, data = df_select_2, group = "Disability_Pct")
+summary(fit_unconstrained)
+summary(fit_constrained)
+
+# Perform chi-square difference test
+chi_diff_test <- lavTestLRT(fit_unconstrained, fit_constrained)
+
+# Output the results of the chi-square difference test
+print(chi_diff_test)
+
+```
+
+## Missingness Analysis
+
+```{r}
+library(naniar)
+library(mice)
+
+df_select_2_full <- df %>%
+    select(A0_FWD, AN6, AN1, A0, Disability_Pct, ChildNum_Disability, C2.1, C2.1_Head, C2.1_Fp, HigherEducation, Gender, A4, FS1, MentalHealthServices_use, MentalHealthServices_know, JS_1, JS_2a, JS_2b, JS_3, JS_4, JS_5, PSS_1, PSS_2, PSS_3, PSS_4, PSS_5, PSS_6, PSS_7, PSS_8, PSS_9, PSS_10, PSS_binned, PSS_total, IN5_8, J1_8, IN13) %>%
+   na.omit()
+
+
+#Scale
+vis_miss(df_select_2_full)
+
+summary(is.na(df))
+
+# Analyze missingness of Disability_Pct by different values of A0
+missingness_by_A0 <- df %>%
+  group_by(A0) %>%
+  summarise(
+    Total = n(),
+    Missing_Disability_Pct = sum(is.na(Disability_Pct)),
+    Proportion_Missing = Missing_Disability_Pct / Total
+  )
+
+# View the result
+print(missingness_by_A0)
+
+# Analyze missingness of Disability_Pct by different values of A0
+missingness_by_CP <- df %>%
+  group_by(C2.1_Head) %>%
+  summarise(
+    Total = n(),
+    Missing_Disability_Pct = sum(is.na(Disability_Pct)),
+    Proportion_Missing = Missing_Disability_Pct / Total
+  )
+
+# View the result
+print(missingness_by_CP)
+
+# Analyze missingness of Disability_Pct by different values of A0
+missingness_by_Race <- df %>%
+  group_by(StaffRace_BWH) %>%
+  summarise(
+    Total = n(),
+    Missing_Disability_Pct = sum(is.na(Disability_Pct)),
+    Proportion_Missing = Missing_Disability_Pct / Total
+  )
+
+# View the result
+print(missingness_by_Race)
+
+# Analyze missingness of Disability_Pct by different values of A0
+missingness_by_Inc <- df %>%
+  group_by(AN1) %>%
+  summarise(
+    Total = n(),
+    Missing_Disability_Pct = sum(is.na(Disability_Pct)),
+    Proportion_Missing = Missing_Disability_Pct / Total
+  )
+
+# View the result
+print(missingness_by_Inc)
+
+# Analyze missingness of Disability_Pct by different values of A0
+missingness_by_Age <- df %>%
+  group_by(A4) %>%
+  summarise(
+    Total = n(),
+    Missing_Disability_Pct = sum(is.na(Disability_Pct)),
+    Proportion_Missing = Missing_Disability_Pct / Total
+  )
+
+# View the result
+print(missingness_by_Age)
+
+# Print the result for A0
+kable(missingness_by_A0, caption = "Missingness of Disability Percentage by Job")
+
+# Print the result for C2.1_Head
+kable(missingness_by_CP, caption = "Missingness of Disability Percentage by Program")
+
+# Print the result for StaffRace_BWH
+kable(missingness_by_Race, caption = "Missingness of Disability Percentage by Staff Race")
+
+# Print the result for AN1
+kable(missingness_by_Inc, caption = "Missingness of Disability Percentage by Income")
+
+# Print the result for A4
+kable(missingness_by_Age, caption = "Missingness of Disability Percentage by Age")
+
+```
+```
